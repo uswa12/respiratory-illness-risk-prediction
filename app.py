@@ -9,7 +9,8 @@ import gdown
 BASE_DIR = os.path.dirname(__file__)
 
 MODEL_ID = "PASTE_MODEL_FILE_ID_HERE"
-CSV_ID = "PASTE_CSV_FILE_ID_HERE"
+model_path = "rf_respiratory_risk_compressed.pkl"
+
 
 csv_path = os.path.join(BASE_DIR, "imputed_daily_AQ_2015_2025.csv")
 
