@@ -4,41 +4,25 @@ import numpy as np
 import joblib
 import plotly.express as px
 import os
-import gdown
 
 BASE_DIR = os.path.dirname(__file__)
 
-MODEL_ID = "PASTE_MODEL_FILE_ID_HERE"
-model_path = "rf_respiratory_risk_compressed.pkl"
+# Use compressed model from repo
+MODEL_PATH = os.path.join(BASE_DIR, "rf_respiratory_risk_compressed.pkl")
+CSV_PATH = os.path.join(BASE_DIR, "imputed_daily_AQ_2015_2025.csv")
 
+# Load model once
+model = joblib.load(MODEL_PATH)
 
-csv_path = os.path.join(BASE_DIR, "imputed_daily_AQ_2015_2025.csv")
-
-# Download model if missing
-model = joblib.load("rf_respiratory_risk_compressed.pkl")
-
-
-# Download dataset if missing
-if not os.path.exists(csv_path):
-    with st.spinner("Downloading dataset..."):
-        gdown.download(f"https://drive.google.com/uc?id=1TNaUpy1iFe5EqG46_m3Sn8ZhE0gshoAk", csv_path, quiet=False)
-
-model = joblib.load(model_path)
-df = pd.read_csv(csv_path)
-
+# Load dataset
+df = pd.read_csv(CSV_PATH)
+df['date'] = pd.to_datetime(df['date'])
 
 FEATURE_NAMES = [
-    'PM2.5_pollutant_level',
-    'PM10_pollutant_level',
-    'ozone_pollutant_level',
-    'nitrogen_dioxide_pollutant_level',
-    'carbon_monoxide_pollutant_level',
-    'sulfur_dioxide_pollutant_level',
-    'Light_Absorption_Coeffiecient',
-    'Average_Ambient_Temperature',
-    'Average_Ambient_Pressure',
-    'Week_ili',
-    'Year_ili'
+    'PM2.5_pollutant_level', 'PM10_pollutant_level', 'ozone_pollutant_level',
+    'nitrogen_dioxide_pollutant_level', 'carbon_monoxide_pollutant_level',
+    'sulfur_dioxide_pollutant_level', 'Light_Absorption_Coeffiecient',
+    'Average_Ambient_Temperature', 'Average_Ambient_Pressure', 'Week_ili', 'Year_ili'
 ]
 
 STATE_ABBR = {
@@ -58,20 +42,18 @@ STATE_ABBR = {
     'Wisconsin': 'WI', 'Wyoming': 'WY'
 }
 
-df['date'] = pd.to_datetime(df['date'])
-
-@st.cache_data
-def add_predictions(data):
-    X = data[FEATURE_NAMES]
-    data['predicted_risk'] = model.predict(X)
-    return data
-
-df = add_predictions(df)
-
 risk_labels = {0: "Low", 1: "Medium", 2: "High"}
 
+# Predict for full dataset ONCE
+@st.cache_data
+def add_dataset_predictions(df, model):
+    X = df[FEATURE_NAMES]
+    df['predicted_risk'] = model.predict(X)
+    return df
 
-#Streamlit UI
+df = add_dataset_predictions(df, model)
+
+# Streamlit UI
 st.set_page_config(page_title="Respiratory Risk Dashboard", layout="wide")
 st.title("Respiratory Illness Risk Dashboard")
 
@@ -80,11 +62,9 @@ st.info(
     "and temporal factors influence respiratory illness risk."
 )
 
-
 tab1, tab2 = st.tabs(["Prediction & Forecasting", "Analytics & Visualization"])
 
-
-#TAB 1 for Prediction and Forecasting
+# --- TAB 1 ---
 with tab1:
     st.header("Risk Prediction")
 
@@ -107,6 +87,7 @@ with tab1:
         week = st.slider("Epidemiological Week", 1, 52, 20)
         year = st.slider("Year", 2015, 2025, 2022)
 
+    # Predict only for slider input
     input_df = pd.DataFrame([[
         pm25, pm10, ozone, no2, co, so2, lac,
         temp, pressure, week, year
@@ -118,48 +99,10 @@ with tab1:
     next_week_pred = model.predict(next_week_df)[0]
 
     st.subheader("Prediction Results")
-    st.caption(
-    "This panel displays the predicted respiratory illness risk based on the selected environmental and temporal conditions. "
-    "The prediction represents the model’s estimate of current health risk rather than a confirmed diagnosis."
-)
-
     st.success(f"**Current Risk:** {risk_labels[current_pred]}")
-    st.caption(
-    "The forecast visualizes the projected trend of respiratory illness risk over upcoming time steps, "
-    "based on historical patterns learned by the model. These projections indicate potential risk direction rather than exact outcomes."
-)
-
     st.info(f"**Next Week Forecast:** {risk_labels[next_week_pred]}")
 
-    st.subheader("Risk Trend Over Time")
-    state_for_trend = st.selectbox("Select State (optional)", ["All"] + sorted(df['state_name'].unique()))
-
-    trend_df = df.copy()
-    if state_for_trend != "All":
-        trend_df = trend_df[trend_df['state_name'] == state_for_trend]
-
-    weekly_trend = trend_df.groupby(['Year_ili', 'Week_ili'])['predicted_risk'].mean().reset_index()
-
-    fig = px.line(
-        weekly_trend,
-        x="Week_ili",
-        y="predicted_risk",
-        color="Year_ili",
-        labels={"predicted_risk": "Mean Risk Level"},
-        title="Seasonal Risk Pattern"
-    )
-
-    st.caption(
-    "This visualization highlights long-term trends in respiratory illness risk over multiple years. "
-    "It helps identify persistent increases, decreases, or cyclical behavior in population-level health outcomes."
-)
-
-    st.plotly_chart(fig, width="stretch")
-
-    
-
-
-# TAB 2 for Analytics & Visualization
+# --- TAB 2 ---
 with tab2:
     st.header("Risk Analytics")
 
@@ -167,37 +110,22 @@ with tab2:
 
     with col1:
         year_range = st.slider("Year Range", 2015, 2025, (2018, 2022))
-
-        agg_method = st.radio(
-        "Aggregation Method",
-        ["Mean", "Median"],
-        horizontal=True
-                        )
+        agg_method = st.radio("Aggregation Method", ["Mean", "Median"], horizontal=True)
 
     with col2:
-        selected_states = st.multiselect(
-            "Select States",
-            sorted(df['state_name'].unique()),
-            default=[]
-        )
+        selected_states = st.multiselect("Select States", sorted(df['state_name'].unique()), default=[])
 
     with col3:
-        risk_filter = st.multiselect(
-            "Risk Levels",
-            ["Low", "Medium", "High"],
-            default=["High"]
-        )
+        risk_filter = st.multiselect("Risk Levels", ["Low", "Medium", "High"], default=["High"])
 
     filtered = df[
         (df['Year_ili'] >= year_range[0]) &
         (df['Year_ili'] <= year_range[1]) &
-        (df['predicted_risk'].map(risk_labels).isin(risk_filter))  
+        (df['predicted_risk'].map(risk_labels).isin(risk_filter))
     ]
-
     if selected_states:
         filtered = filtered[filtered['state_name'].isin(selected_states)]
 
-    #Aggregation
     risk_agg = 'mean' if agg_method == "Mean" else 'median'
 
     state_summary = filtered.groupby(['Year_ili', 'state_name']).agg(
@@ -206,183 +134,20 @@ with tab2:
         count=('predicted_risk', 'count')
     ).reset_index()
 
-
     state_summary['state_code'] = state_summary['state_name'].map(STATE_ABBR)
     state_summary = state_summary.dropna(subset=['state_code'])
 
-    state_summary['risk_label'] = state_summary['mean_risk'].round().map({
-        0: 'Low',
-        1: 'Medium',
-        2: 'High'
-    })
-    st.markdown("""
-    ### Map Legend & Interpretation
+    state_summary['risk_label'] = state_summary['mean_risk'].round().map({0:'Low',1:'Medium',2:'High'})
 
-    - **Low Risk** → Generally safe respiratory conditions  
-    - **Medium Risk** → Moderate pollution-related respiratory stress  
-    - **High Risk** → Elevated likelihood of respiratory illness  
-
-    The map shows **aggregated predicted respiratory risk** for each state
-    based on selected filters and time ranges.
-    """)
-
-    #map
     fig_map = px.choropleth(
-    state_summary,
-    locations='state_code',
-    locationmode='USA-states',
-    color='risk_label',
-    scope='usa',
-    animation_frame='Year_ili',
-    hover_name='state_name',
-    hover_data={
-        'mean_risk': ':.2f',
-        'avg_pm25': ':.1f',
-        'count': True,
-        'state_code': False
-    },
-    color_discrete_map={
-        'Low': 'green',
-        'Medium': 'orange',
-        'High': 'red'
-    },
-    title=f"Respiratory Risk by State ({agg_method} Aggregation)"
-)
-
-    st.caption(
-    "Color intensity reflects aggregated risk levels, enabling regional comparison and hotspot identification."
-)
-
+        state_summary,
+        locations='state_code',
+        locationmode='USA-states',
+        color='risk_label',
+        scope='usa',
+        animation_frame='Year_ili',
+        hover_name='state_name',
+        color_discrete_map={'Low':'green','Medium':'orange','High':'red'},
+        title=f"Respiratory Risk by State ({agg_method})"
+    )
     st.plotly_chart(fig_map, width="stretch")
-
-
-
-    #Pollutant importance
-    st.subheader("Pollutant Contribution Analysis")
-
-    importances = pd.DataFrame({
-        "Feature": FEATURE_NAMES,
-        "Importance": model.feature_importances_
-    }).sort_values(by="Importance", ascending=False)
-
-    fig_imp = px.bar(
-        importances,
-        x="Importance",
-        y="Feature",
-        orientation='h',
-        title="Random Forest Feature Importance"
-    )
-
-    st.caption(
-    "Feature importance scores indicate the relative contribution of each variable to the model’s predictions. "
-    "Higher values suggest stronger influence on respiratory illness risk estimation."
-)
-
-    st.plotly_chart(fig_imp, width="stretch")
-
-
-    st.header("Temporal Trends in Respiratory Illness Risk")
-
-    # Filters
-    state_sel = st.selectbox(
-        "Select State",
-        sorted(df["state_name"].unique())
-    )
-
-    year_range = st.slider(
-        "Select Year Range",
-        int(df["Year_ili"].min()),
-        int(df["Year_ili"].max()),
-        (2015, 2025)
-    )
-
-    # Filter data
-    temp_df = df[
-        (df["state_name"] == state_sel) &
-        (df["Year_ili"].between(year_range[0], year_range[1]))
-    ]
-
-    # Aggregate yearly
-    yearly_trend = temp_df.groupby("Year_ili")["ILI_Target"].mean().reset_index()
-
-    fig_trend = px.line(
-        yearly_trend,
-        x="Year_ili",
-        y="ILI_Target",
-        markers=True,
-        title=f"Average Respiratory Illness Risk Over Time ({state_sel})",
-        labels={
-            "Year_ili": "Year",
-            "ILI_Target": "Average ILI (%)"
-        }
-    )
-
-    st.caption(
-    "This chart shows how average respiratory illness risk evolves over time. "
-    "Notice the long-term trend and year-to-year fluctuations."
-)
-    st.plotly_chart(fig_trend, width="stretch")
-
-
-
-
-    st.header("Seasonal Patterns of Respiratory Illness")
-
-    season_df = temp_df.copy()
-    season_df["month"] = season_df["date"].dt.month
-
-    fig_season = px.box(
-        season_df,
-        x="month",
-        y="ILI_Target",
-        title="Monthly Distribution of Respiratory Illness Risk",
-        labels={
-            "month": "Month",
-            "ILI_Target": "ILI (%)"
-        }
-    )
-
-    st.caption(
-    "Seasonal variation in respiratory illness risk. "
-    "Higher median values during winter months indicate seasonal effects."
-)
-
- 
-    st.plotly_chart(fig_season, width="stretch")
-
-    st.header("Pollution vs Respiratory Risk")
-
-    pollutant = st.selectbox(
-        "Select Pollutant",
-        [
-            "PM2.5_pollutant_level",
-            "PM10_pollutant_level",
-            "ozone_pollutant_level",
-            "nitrogen_dioxide_pollutant_level"
-        ]
-    )
-
-    fig_scatter = px.scatter(
-        temp_df,
-        x=pollutant,
-        y="ILI_Target",
-        opacity=0.6,
-        trendline="ols",
-        title=f"{pollutant.replace('_', ' ')} vs Respiratory Illness Risk",
-        labels={
-            pollutant: "Pollutant Level",
-            "ILI_Target": "ILI (%)"
-        }
-    )
-
-    st.caption(
-    "Each point represents an observation. "
-    "The trendline summarizes the average relationship between pollution levels and illness risk."
-)
-
-    st.plotly_chart(fig_scatter, width="stretch")
-
-
-
-
-
