@@ -11,13 +11,11 @@ BASE_DIR = os.path.dirname(__file__)
 MODEL_ID = "PASTE_MODEL_FILE_ID_HERE"
 CSV_ID = "PASTE_CSV_FILE_ID_HERE"
 
-model_path = os.path.join(BASE_DIR, "rf_respiratory_risk.pkl")
 csv_path = os.path.join(BASE_DIR, "imputed_daily_AQ_2015_2025.csv")
 
 # Download model if missing
-if not os.path.exists(model_path):
-    with st.spinner("Downloading prediction model..."):
-        gdown.download(f"https://drive.google.com/uc?id=1RHxfBu13VKUwjUY_2Cb19qQmOKpd0T40", model_path, quiet=False)
+model = joblib.load("rf_respiratory_risk_compressed.pkl")
+
 
 # Download dataset if missing
 if not os.path.exists(csv_path):
