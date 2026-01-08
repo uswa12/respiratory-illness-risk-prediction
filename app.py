@@ -6,12 +6,12 @@ import plotly.express as px
 import os
 import gdown
 
-# -------------------- Base setup --------------------
+# -------------------- Base Setup --------------------
 BASE_DIR = os.path.dirname(__file__)
-
+MODEL_PATH = os.path.join(BASE_DIR, "rf_respiratory_risk_compressed.pkl")
 CSV_PATH = os.path.join(BASE_DIR, "imputed_daily_AQ_2015_2025.csv")
 
-# Download dataset if missing
+# -------------------- Download dataset if missing --------------------
 if not os.path.exists(CSV_PATH):
     with st.spinner("Downloading dataset..."):
         gdown.download(
@@ -20,11 +20,10 @@ if not os.path.exists(CSV_PATH):
             quiet=False
         )
 
-# Load model
-MODEL_PATH = os.path.join(BASE_DIR, "rf_respiratory_risk_compressed.pkl")
+# -------------------- Load Model --------------------
 model = joblib.load(MODEL_PATH)
 
-# Load CSV
+# -------------------- Load Dataset --------------------
 @st.cache_data
 def load_data(path):
     df = pd.read_csv(path)
@@ -33,41 +32,44 @@ def load_data(path):
 
 df = load_data(CSV_PATH)
 
-# Features & state codes
+# -------------------- Feature Names & States --------------------
 FEATURE_NAMES = [
     'PM2.5_pollutant_level','PM10_pollutant_level','ozone_pollutant_level',
     'nitrogen_dioxide_pollutant_level','carbon_monoxide_pollutant_level',
     'sulfur_dioxide_pollutant_level','Light_Absorption_Coeffiecient',
-    'Average_Ambient_Temperature','Average_Ambient_Pressure','Week_ili','Year_ili'
+    'Average_Ambient_Temperature','Average_Ambient_Pressure',
+    'Week_ili','Year_ili'
 ]
 
 STATE_ABBR = {
-    'Alabama': 'AL', 'Alaska': 'AK', 'Arizona': 'AZ', 'Arkansas': 'AR',
-    'California': 'CA', 'Colorado': 'CO', 'Connecticut': 'CT', 'Delaware': 'DE',
-    'Florida': 'FL', 'Georgia': 'GA', 'Hawaii': 'HI', 'Idaho': 'ID',
-    'Illinois': 'IL', 'Indiana': 'IN', 'Iowa': 'IA', 'Kansas': 'KS',
-    'Kentucky': 'KY', 'Louisiana': 'LA', 'Maine': 'ME', 'Maryland': 'MD',
-    'Massachusetts': 'MA', 'Michigan': 'MI', 'Minnesota': 'MN', 'Mississippi': 'MS',
-    'Missouri': 'MO', 'Montana': 'MT', 'Nebraska': 'NE', 'Nevada': 'NV',
-    'New Hampshire': 'NH', 'New Jersey': 'NJ', 'New Mexico': 'NM',
-    'New York': 'NY', 'North Carolina': 'NC', 'North Dakota': 'ND',
-    'Ohio': 'OH', 'Oklahoma': 'OK', 'Oregon': 'OR', 'Pennsylvania': 'PA',
-    'Rhode Island': 'RI', 'South Carolina': 'SC', 'South Dakota': 'SD',
-    'Tennessee': 'TN', 'Texas': 'TX', 'Utah': 'UT', 'Vermont': 'VT',
-    'Virginia': 'VA', 'Washington': 'WA', 'West Virginia': 'WV',
-    'Wisconsin': 'WI', 'Wyoming': 'WY'
+    'Alabama': 'AL','Alaska': 'AK','Arizona': 'AZ','Arkansas': 'AR',
+    'California': 'CA','Colorado': 'CO','Connecticut': 'CT','Delaware': 'DE',
+    'Florida': 'FL','Georgia': 'GA','Hawaii': 'HI','Idaho': 'ID',
+    'Illinois': 'IL','Indiana': 'IN','Iowa': 'IA','Kansas': 'KS',
+    'Kentucky': 'KY','Louisiana': 'LA','Maine': 'ME','Maryland': 'MD',
+    'Massachusetts': 'MA','Michigan': 'MI','Minnesota': 'MN','Mississippi': 'MS',
+    'Missouri': 'MO','Montana': 'MT','Nebraska': 'NE','Nevada': 'NV',
+    'New Hampshire': 'NH','New Jersey': 'NJ','New Mexico': 'NM',
+    'New York': 'NY','North Carolina': 'NC','North Dakota': 'ND',
+    'Ohio': 'OH','Oklahoma': 'OK','Oregon': 'OR','Pennsylvania': 'PA',
+    'Rhode Island': 'RI','South Carolina': 'SC','South Dakota': 'SD',
+    'Tennessee': 'TN','Texas': 'TX','Utah': 'UT','Vermont': 'VT',
+    'Virginia': 'VA','Washington': 'WA','West Virginia': 'WV',
+    'Wisconsin': 'WI','Wyoming': 'WY'
 }
 
 risk_labels = {0: "Low", 1: "Medium", 2: "High"}
 
-# -------------------- Helper Functions --------------------
-def predict_risk(input_df):
-    """Predict risk for a DataFrame of features."""
-    df_copy = input_df.copy()
-    df_copy['predicted_risk'] = model.predict(df_copy[FEATURE_NAMES])
-    return df_copy
+# -------------------- Precompute predictions once --------------------
+@st.cache_data
+def compute_predictions(data):
+    X = data[FEATURE_NAMES]
+    data['predicted_risk'] = model.predict(X)
+    return data
 
-# -------------------- Streamlit UI --------------------
+df = compute_predictions(df)
+
+# -------------------- Streamlit Page --------------------
 st.set_page_config(page_title="Respiratory Risk Dashboard", layout="wide")
 st.title("Respiratory Illness Risk Dashboard")
 st.info(
@@ -77,11 +79,12 @@ st.info(
 
 tab1, tab2 = st.tabs(["Prediction & Forecasting", "Analytics & Visualization"])
 
-# -------------------- TAB 1 --------------------
+# -------------------- TAB 1: Prediction & Forecasting --------------------
 with tab1:
     st.header("Risk Prediction")
     col1, col2, col3 = st.columns(3)
 
+    # User sliders for single-row prediction
     with col1:
         pm25 = st.slider("PM2.5", 0.0, 300.0, 50.0)
         pm10 = st.slider("PM10", 0.0, 300.0, 80.0)
@@ -99,11 +102,13 @@ with tab1:
         week = st.slider("Epidemiological Week", 1, 52, 20)
         year = st.slider("Year", 2015, 2025, 2022)
 
+    # Create 1-row DataFrame for prediction
     input_df = pd.DataFrame([[
         pm25, pm10, ozone, no2, co, so2, lac,
         temp, pressure, week, year
     ]], columns=FEATURE_NAMES)
 
+    # Run model prediction on single row only
     current_pred = model.predict(input_df)[0]
     next_week_df = input_df.copy()
     next_week_df['Week_ili'] = min(52, week + 1)
@@ -119,9 +124,6 @@ with tab1:
     trend_df = df.copy()
     if state_for_trend != "All":
         trend_df = trend_df[trend_df['state_name'] == state_for_trend]
-
-    # Predict only for trend_df
-    trend_df = predict_risk(trend_df)
     weekly_trend = trend_df.groupby(['Year_ili', 'Week_ili'])['predicted_risk'].mean().reset_index()
     fig = px.line(
         weekly_trend,
@@ -133,7 +135,7 @@ with tab1:
     )
     st.plotly_chart(fig, use_container_width=True)
 
-# -------------------- TAB 2 --------------------
+# -------------------- TAB 2: Analytics & Visualization --------------------
 with tab2:
     st.header("Risk Analytics")
     col1, col2, col3 = st.columns(3)
@@ -145,17 +147,16 @@ with tab2:
     with col3:
         risk_filter = st.multiselect("Risk Levels", ["Low", "Medium", "High"], default=["High"])
 
+    # Filter using precomputed predicted_risk
     filtered = df[
         (df['Year_ili'] >= year_range[0]) &
-        (df['Year_ili'] <= year_range[1])
+        (df['Year_ili'] <= year_range[1]) &
+        (df['predicted_risk'].map(risk_labels).isin(risk_filter))
     ]
     if selected_states:
         filtered = filtered[filtered['state_name'].isin(selected_states)]
 
-    # Predict only for filtered
-    filtered = predict_risk(filtered)
-    filtered = filtered[filtered['predicted_risk'].map(risk_labels).isin(risk_filter)]
-
+    # Aggregation
     risk_agg = 'mean' if agg_method == "Mean" else 'median'
     state_summary = filtered.groupby(['Year_ili', 'state_name']).agg(
         mean_risk=('predicted_risk', risk_agg),
@@ -190,9 +191,8 @@ with tab2:
     # Temporal Trends
     st.header("Temporal Trends in Respiratory Illness Risk")
     state_sel = st.selectbox("Select State", sorted(df["state_name"].unique()))
-    year_range_tt = st.slider("Select Year Range (Temporal Trends)", int(df["Year_ili"].min()), int(df["Year_ili"].max()), (2015, 2025))
-    temp_df = df[(df["state_name"] == state_sel) & (df["Year_ili"].between(year_range_tt[0], year_range_tt[1]))]
-    temp_df = predict_risk(temp_df)
+    year_range_temp = st.slider("Select Year Range", int(df["Year_ili"].min()), int(df["Year_ili"].max()), (2015, 2025))
+    temp_df = df[(df["state_name"] == state_sel) & (df["Year_ili"].between(year_range_temp[0], year_range_temp[1]))]
     yearly_trend = temp_df.groupby("Year_ili")["ILI_Target"].mean().reset_index()
     fig_trend = px.line(yearly_trend, x="Year_ili", y="ILI_Target", markers=True, title=f"Average Respiratory Illness Risk Over Time ({state_sel})", labels={"Year_ili": "Year", "ILI_Target": "Average ILI (%)"})
     st.plotly_chart(fig_trend, use_container_width=True)
